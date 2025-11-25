@@ -1,5 +1,5 @@
 from torch import nn
-from constants import d_model, drop_out_rate, num_heads, d_k, d_ff, seq_len, device, attention_type
+from constants import d_model, drop_out_rate, num_heads, d_k, d_ff, seq_len, attention_type
 
 import torch
 import math
