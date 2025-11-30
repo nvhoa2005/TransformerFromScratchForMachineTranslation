@@ -2,6 +2,7 @@ from constants import (
     SP_DIR,
     src_model_prefix,
     trg_model_prefix,
+    seq_len,
     pad_id,
     learning_rate,
     device,
@@ -111,5 +112,13 @@ class Manager:
     def beam_search(self):
         pass
     
-    def make_mask(self):
-        pass
+    def make_mask(self, src_input, trg_input):
+        e_mask = (src_input != pad_id).unsqueeze(1).to(device)
+        d_mask = (trg_input != pad_id).unsqueeze(1).to(device)
+
+        nopeak_mask = torch.tril(
+            torch.ones((1, seq_len, seq_len), dtype=torch.bool, device=device)
+        )  # (1, L, L) to triangular shape
+        d_mask = d_mask & nopeak_mask  # (B, L, L) padding false
+
+        return e_mask, d_mask
