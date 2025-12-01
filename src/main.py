@@ -144,7 +144,7 @@ class Manager:
 
         mean_valid_loss = np.mean(valid_losses)
 
-        # return mean_valid_loss, f"{hours}hrs {minutes}mins {seconds}secs"
+        return mean_valid_loss, f"{hours}hrs {minutes}mins {seconds}secs"
     
     def inference(self):
         pass
