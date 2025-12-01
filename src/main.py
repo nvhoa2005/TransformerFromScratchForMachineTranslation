@@ -1,3 +1,4 @@
+from tqdm import tqdm
 from constants import (
     SP_DIR,
     src_model_prefix,
@@ -17,6 +18,8 @@ from torch import nn
 import torch
 import sys
 import os
+import numpy as np
+import datetime
 
 class Manager:
     def __init__(self, is_train=True, ckpt_name=None):
@@ -101,7 +104,47 @@ class Manager:
         pass
     
     def validation(self):
-        pass
+        print("Validation processing...")
+        self.model.eval()
+
+        valid_losses = []
+        start_time = datetime.datetime.now()
+
+        with torch.no_grad():
+            for i, batch in tqdm(enumerate(self.valid_loader)):
+                src_input, trg_input, trg_output = batch
+                src_input, trg_input, trg_output = (
+                    src_input.to(device),
+                    trg_input.to(device),
+                    trg_output.to(device),
+                )
+
+                e_mask, d_mask = self.make_mask(src_input, trg_input)
+
+                output = self.model(
+                    src_input, trg_input, e_mask, d_mask
+                )  # (B, L, vocab_size)
+
+                trg_output_shape = trg_output.shape
+                loss = self.criterion(
+                    output.view(-1, self.model_core.trg_vocab_size),
+                    trg_output.view(trg_output_shape[0] * trg_output_shape[1]),
+                )
+
+                valid_losses.append(loss.item())
+
+                del src_input, trg_input, trg_output, e_mask, d_mask, output
+
+        end_time = datetime.datetime.now()
+        validation_time = end_time - start_time
+        seconds = validation_time.seconds
+        hours = seconds // 3600
+        minutes = (seconds % 3600) // 60
+        seconds = seconds % 60
+
+        mean_valid_loss = np.mean(valid_losses)
+
+        return mean_valid_loss, f"{hours}hrs {minutes}mins {seconds}secs"
     
     def inference(self):
         pass
