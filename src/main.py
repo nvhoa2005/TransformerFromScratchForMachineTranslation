@@ -11,7 +11,7 @@ from constants import (
     start_epoch,
 )
 from constants import TRAIN_NAME, VALID_NAME
-from custom_data import get_data_loader
+from custom_data import get_data_loader, pad_or_truncate
 from transformer import Transformer
 from torch import nn
 
@@ -20,6 +20,7 @@ import sys
 import os
 import numpy as np
 import datetime
+import sentencepiece as spm
 
 class Manager:
     def __init__(self, is_train=True, ckpt_name=None):
@@ -146,8 +147,53 @@ class Manager:
 
         return mean_valid_loss, f"{hours}hrs {minutes}mins {seconds}secs"
     
-    def inference(self):
-        pass
+    def inference(self, input_sentence, method):
+        print("Inference starts.")
+        self.model.eval()
+
+        print("Loading sentencepiece tokenizer...")
+        src_sp = spm.SentencePieceProcessor()
+        trg_sp = spm.SentencePieceProcessor()
+        src_sp.Load(f"{SP_DIR}/{src_model_prefix}.model")
+        trg_sp.Load(f"{SP_DIR}/{trg_model_prefix}.model")
+
+        print("Preprocessing input sentence...")
+        tokenized = src_sp.EncodeAsIds(input_sentence)
+        src_data = (
+            torch.LongTensor(pad_or_truncate(tokenized)).unsqueeze(0).to(device)
+        )  # (1, L)
+        e_mask = (src_data != pad_id).unsqueeze(1).to(device)  # (1, 1, L)
+
+        start_time = datetime.datetime.now()
+
+        print("Encoding input sentence...")
+
+        with torch.no_grad():
+            src_data = self.model_core.src_embedding(src_data)
+            src_data = self.model_core.positional_encoder(src_data)
+            e_output = self.model_core.encoder(src_data, e_mask)  # (1, L, d_model)
+
+            if method == "greedy":
+                print("Greedy decoding selected.")
+                result = self.greedy_search(e_output, e_mask, trg_sp)
+            elif method == "beam":
+                print("Beam search selected.")
+                result = self.beam_search(e_output, e_mask, trg_sp)
+
+        end_time = datetime.datetime.now()
+
+        total_inference_time = end_time - start_time
+        seconds = total_inference_time.seconds
+        minutes = seconds // 60
+        seconds = seconds % 60
+
+        print(f"Input: {input_sentence}")
+        print(f"Result: {result}")
+        print(
+            f"Inference finished! || Total inference time: {minutes}mins {seconds}secs"
+        )
+
+        return result
     
     def greedy_search(self):
         pass
