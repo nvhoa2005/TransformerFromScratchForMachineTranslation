@@ -7,6 +7,7 @@ from constants import (
     pad_id,
     learning_rate,
     device,
+    num_epochs,
     ckpt_dir,
     start_epoch,
 )
@@ -102,7 +103,88 @@ class Manager:
         print("Setting finished.")
 
     def train(self):
-        pass
+        print("Training starts.")
+
+        start_range = self.start_epoch
+        end_range = self.start_epoch + num_epochs
+
+        for epoch in range(start_range, end_range):
+            self.model.train()
+
+            train_losses = []
+            start_time = datetime.datetime.now()
+
+            for i, batch in tqdm(enumerate(self.train_loader)):
+                src_input, trg_input, trg_output = batch
+                src_input, trg_input, trg_output = (
+                    src_input.to(device),
+                    trg_input.to(device),
+                    trg_output.to(device),
+                )
+
+                e_mask, d_mask = self.make_mask(src_input, trg_input)
+
+                output = self.model(
+                    src_input, trg_input, e_mask, d_mask
+                )  # (B, L, vocab_size)
+
+                trg_output_shape = trg_output.shape
+                self.optim.zero_grad()
+                loss = self.criterion(
+                    output.view(-1, self.model_core.trg_vocab_size),
+                    trg_output.view(trg_output_shape[0] * trg_output_shape[1]),
+                )
+
+                loss.backward()
+                self.optim.step()
+
+                train_losses.append(loss.item())
+
+                del src_input, trg_input, trg_output, e_mask, d_mask, output
+
+            end_time = datetime.datetime.now()
+            training_time = end_time - start_time
+            seconds = training_time.seconds
+            hours = seconds // 3600
+            minutes = (seconds % 3600) // 60
+            seconds = seconds % 60
+
+            mean_train_loss = np.mean(train_losses)
+            print(f"#################### Epoch: {epoch} ####################")
+            print(
+                f"Train loss: {mean_train_loss} || One epoch training time: {hours}hrs {minutes}mins {seconds}secs"
+            )
+
+            valid_loss, valid_time = self.validation()
+
+            if not os.path.exists(ckpt_dir):
+                os.mkdir(ckpt_dir)
+
+            is_best = False
+            if valid_loss < self.best_loss:
+                self.best_loss = valid_loss
+                is_best = True
+                print(
+                    f"***** Epoch {epoch} has best valid loss: {self.best_loss} *****"
+                )
+            state_dict = {
+                "model_state_dict": self.model_core.state_dict(),
+                "optim_state_dict": self.optim.state_dict(),
+                "loss": valid_loss,
+                "best_loss": self.best_loss,
+                "epoch": epoch,
+            }
+            torch.save(state_dict, f"{ckpt_dir}/ckpt_epoch{epoch}.tar")
+            print(f"Saved checkpoint: ckpt_epoch{epoch}.tar")
+
+            if is_best:
+                torch.save(state_dict, f"{ckpt_dir}/best_ckpt.tar")
+                print("***** Updated best_ckpt.tar *****")
+
+            print(f"Best valid loss: {self.best_loss}")
+            print(f"Valid loss: {valid_loss} || One epoch training time: {valid_time}")
+
+        print("Training finished!")
     
     def validation(self):
         print("Validation processing...")
