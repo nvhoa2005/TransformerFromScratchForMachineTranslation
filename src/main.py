@@ -5,6 +5,8 @@ from constants import (
     trg_model_prefix,
     seq_len,
     pad_id,
+    sos_id,
+    eos_id,
     learning_rate,
     device,
     num_epochs,
@@ -277,8 +279,48 @@ class Manager:
 
         return result
     
-    def greedy_search(self):
-        pass
+    def greedy_search(self, e_output, e_mask, trg_sp):
+        last_words = torch.LongTensor([pad_id] * seq_len).to(device)  # (L)
+        last_words[0] = sos_id  # (L)
+        cur_len = 1
+
+        for i in range(seq_len):
+            d_mask = (
+                (last_words.unsqueeze(0) != pad_id).unsqueeze(1).to(device)
+            )  # (1, 1, L)
+            nopeak_mask = torch.ones([1, seq_len, seq_len], dtype=torch.bool).to(
+                device
+            )  # (1, L, L)
+            nopeak_mask = torch.tril(nopeak_mask)  # (1, L, L) to triangular shape
+            d_mask = d_mask & nopeak_mask  # (1, L, L) padding false
+
+            trg_embedded = self.model_core.trg_embedding(last_words.unsqueeze(0))
+            trg_positional_encoded = self.model_core.positional_encoder(trg_embedded)
+            decoder_output = self.model_core.decoder(
+                trg_positional_encoded, e_output, e_mask, d_mask
+            )  # (1, L, d_model)
+
+            output = self.model_core.softmax(
+                self.model_core.output_linear(decoder_output)
+            )  # (1, L, trg_vocab_size)
+
+            output = torch.argmax(output, dim=-1)  # (1, L)
+            last_word_id = output[0][i].item()
+
+            if i < seq_len - 1:
+                last_words[i + 1] = last_word_id
+                cur_len += 1
+
+            if last_word_id == eos_id:
+                break
+
+        if last_words[-1].item() == pad_id:
+            decoded_output = last_words[1:cur_len].tolist()
+        else:
+            decoded_output = last_words[1:].tolist()
+        decoded_output = trg_sp.decode_ids(decoded_output)
+
+        return decoded_output
     
     def beam_search(self):
         pass
