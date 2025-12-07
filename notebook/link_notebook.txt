@@ -1,0 +1,10 @@
+create dataset:
+https://www.kaggle.com/code/nguynvnhanguynvnha/create-phomt-700k-pairs
+
+train:
+https://www.kaggle.com/code/nguynvnhanguynvnha/test-transformer-phomt-700k-dataset-dot-product
+https://www.kaggle.com/code/nguynvnhanguynvnha/test-transformer-phomt-700k-dataset-luong
+
+evaluate:
+https://www.kaggle.com/code/nguynvnhanguynvnha/evaluate-dot-product-5epoch-phomt-700k
+https://www.kaggle.com/code/nguynvnhanguynvnha/evaluate-luong-5epoch-phomt-700k
