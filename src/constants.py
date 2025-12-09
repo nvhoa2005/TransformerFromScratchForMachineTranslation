@@ -36,3 +36,7 @@ drop_out_rate = 0.1
 num_epochs = 5
 beam_size = 5
 ckpt_dir = 'saved_model'
+
+# Others
+attention_type = 'luong' # 'bahdanau' or 'luong' or 'scaled_dot_product'
+start_epoch = 1

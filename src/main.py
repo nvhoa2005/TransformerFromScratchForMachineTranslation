@@ -235,7 +235,7 @@ class Manager:
 
         return mean_valid_loss, f"{hours}hrs {minutes}mins {seconds}secs"
 
-    def inference(self, input_sentence, method):
+    def inference(self, input_sentence, method, beam_k=None):
         print("Inference starts.")
         self.model.eval()
 
@@ -265,8 +265,9 @@ class Manager:
                 print("Greedy decoding selected.")
                 result = self.greedy_search(e_output, e_mask, trg_sp)
             elif method == "beam":
-                print("Beam search selected.")
-                result = self.beam_search(e_output, e_mask, trg_sp)
+                k = beam_k if beam_k is not None else beam_size
+                print(f"Beam search selected with size {k}.")
+                result = self.beam_search(e_output, e_mask, trg_sp, beam_size=k)
 
         end_time = datetime.datetime.now()
 
