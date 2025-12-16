@@ -21,11 +21,11 @@ def get_data_loader(file_name):
         trg_text_list = f.readlines()
 
     print("Tokenizing & Padding src data...")
-    src_list = process_src(src_text_list) # (sample_num, L)
+    src_list = process_src(src_text_list) 
     print(f"The shape of src data: {np.shape(src_list)}")
 
     print("Tokenizing & Padding trg data...")
-    input_trg_list, output_trg_list = process_trg(trg_text_list) # (sample_num, L)
+    input_trg_list, output_trg_list = process_trg(trg_text_list) 
     print(f"The shape of input trg data: {np.shape(input_trg_list)}")
     print(f"The shape of output trg data: {np.shape(output_trg_list)}")
 
@@ -78,12 +78,12 @@ class CustomDataset(Dataset):
         assert np.shape(input_trg_list) == np.shape(output_trg_list), "The shape of input_trg_list and output_trg_list are different."
 
     def make_mask(self):
-        e_mask = (self.src_data != pad_id).unsqueeze(1) # (num_samples, 1, L)
-        d_mask = (self.input_trg_data != pad_id).unsqueeze(1) # (num_samples, 1, L)
+        e_mask = (self.src_data != pad_id).unsqueeze(1) 
+        d_mask = (self.input_trg_data != pad_id).unsqueeze(1) 
 
-        nopeak_mask = torch.ones([1, seq_len, seq_len], dtype=torch.bool) # (1, L, L)
-        nopeak_mask = torch.tril(nopeak_mask) # (1, L, L) to triangular shape
-        d_mask = d_mask & nopeak_mask # (num_samples, L, L) padding false
+        nopeak_mask = torch.ones([1, seq_len, seq_len], dtype=torch.bool) 
+        nopeak_mask = torch.tril(nopeak_mask) 
+        d_mask = d_mask & nopeak_mask 
 
         return e_mask, d_mask
 
