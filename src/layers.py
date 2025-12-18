@@ -22,14 +22,14 @@ class EncoderLayer(nn.Module):
         self.drop_out_2 = nn.Dropout(drop_out_rate)
 
     def forward(self, x, e_mask):
-        x_1 = self.layer_norm_1(x) # (B, L, d_model)
+        x_1 = self.layer_norm_1(x)
         x = x + self.drop_out_1(
             self.multihead_attention(x_1, x_1, x_1, mask=e_mask)
-        ) # (B, L, d_model)
-        x_2 = self.layer_norm_2(x) # (B, L, d_model)
-        x = x + self.drop_out_2(self.feed_forward(x_2)) # (B, L, d_model)
+        )
+        x_2 = self.layer_norm_2(x)
+        x = x + self.drop_out_2(self.feed_forward(x_2))
 
-        return x # (B, L, d_model)
+        return x
 
 
 class DecoderLayer(nn.Module):
@@ -60,18 +60,18 @@ class DecoderLayer(nn.Module):
         self.drop_out_3 = nn.Dropout(drop_out_rate)
 
     def forward(self, x, e_output, e_mask,  d_mask):
-        x_1 = self.layer_norm_1(x) # (B, L, d_model)
+        x_1 = self.layer_norm_1(x)
         x = x + self.drop_out_1(
             self.masked_multihead_attention(x_1, x_1, x_1, mask=d_mask)
-        ) # (B, L, d_model)
-        x_2 = self.layer_norm_2(x) # (B, L, d_model)
+        )
+        x_2 = self.layer_norm_2(x)
         x = x + self.drop_out_2(
             self.multihead_attention(x_2, e_output, e_output, mask=e_mask)
-        ) # (B, L, d_model)
-        x_3 = self.layer_norm_3(x) # (B, L, d_model)
-        x = x + self.drop_out_3(self.feed_forward(x_3)) # (B, L, d_model)
+        )
+        x_3 = self.layer_norm_3(x)
+        x = x + self.drop_out_3(self.feed_forward(x_3))
 
-        return x # (B, L, d_model)
+        return x
 
 
 class MultiheadAttention(nn.Module):
@@ -138,9 +138,9 @@ class FeedFowardLayer(nn.Module):
         self.dropout = nn.Dropout(drop_out_rate)
 
     def forward(self, x):
-        x = self.relu(self.linear_1(x)) # (B, L, d_ff)
+        x = self.relu(self.linear_1(x))
         x = self.dropout(x)
-        x = self.linear_2(x) # (B, L, d_model)
+        x = self.linear_2(x)
 
         return x
 
@@ -171,7 +171,7 @@ class PositionalEncoder(nn.Module):
                 elif i % 2 == 1:
                     pe_matrix[pos, i] = math.cos(pos / (10000 ** (2 * i / d_model)))
 
-        pe_matrix = pe_matrix.unsqueeze(0) # (1, L, d_model)
+        pe_matrix = pe_matrix.unsqueeze(0)
         # self.positional_encoding = pe_matrix.to(device=device).requires_grad_(False)
         self.register_buffer('positional_encoding', pe_matrix)
 
@@ -215,15 +215,9 @@ class BahdanauMultiheadAttention(nn.Module):
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
 
-        # --- Bahdanau Score Calculation ---
-        # q: (B, H, L_q, 1, d_k)
-        # k: (B, H, 1, L_k, d_k)
-        # Broadcast sum -> (B, H, L_q, L_k, d_k)
         energy = torch.tanh(q.unsqueeze(3) + k.unsqueeze(2)) 
         
-        # Multiply by v and sum last dim -> (B, H, L_q, L_k)
         attn_scores = torch.sum(self.v * energy, dim=-1) 
-        # ----------------------------------
 
         if mask is not None:
             mask = mask.unsqueeze(1) 
@@ -249,13 +243,8 @@ class LuongMultiheadAttention(nn.Module):
         self.w_k = nn.Linear(d_model, d_model)
         self.w_v = nn.Linear(d_model, d_model)
 
-        # --- LUONG 'GENERAL' SPECIFIC ---
-        # Matrix Wa in formula: score(h_t, h_s) = h_t^T * Wa * h_s
-        # Chúng ta cần một ma trận Wa cho mỗi Head riêng biệt.
-        # Shape: (num_heads, d_k, d_k)
         self.w_a = nn.Parameter(torch.rand(num_heads, d_k, d_k))
         nn.init.xavier_uniform_(self.w_a)
-        # --------------------------------
 
         self.dropout = nn.Dropout(drop_out_rate)
         self.attn_softmax = nn.Softmax(dim=-1)
@@ -275,19 +264,9 @@ class LuongMultiheadAttention(nn.Module):
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
 
-        # 2. Luong 'General' Score Calculation: Q * Wa * K^T
-        # Bước A: Tính Q_weighted = Q * Wa
-        # Q: (B, H, L_q, d_k)
-        # Wa: (H, d_k, d_k)
-        # Chúng ta dùng einsum để nhân ma trận Wa riêng cho từng head
-        # 'bhld' (q), 'hde' (wa) -> 'bhle' (q_weighted)
         q_weighted = torch.einsum('bhld,hde->bhle', q, self.w_a)
 
-        # Bước B: Nhân với K^T
         attn_scores = torch.matmul(q_weighted, k.transpose(-2, -1)) # (B, H, L_q, L_k)
-
-        # Lưu ý: Luong Attention gốc thường không chia cho sqrt(d_k), 
-        # nhưng ta có thể giữ hoặc bỏ tùy ý. Ở đây tôi bỏ scaling để đúng chất Luong General.
         
         # 3. Masking & Softmax (Standard)
         if mask is not None:
