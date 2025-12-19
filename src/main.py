@@ -83,7 +83,7 @@ class Manager:
             self.best_loss = checkpoint["loss"]
 
             if "epoch" in checkpoint:
-                self.start_epoch = checkpoint["epoch"]
+                self.start_epoch = checkpoint["epoch"] + 1
                 print(f"Resuming training from epoch {self.start_epoch}")
             else:
                 print(
@@ -328,18 +328,7 @@ class Manager:
         return decoded_output
 
     def beam_search(self, e_output, e_mask, trg_sp, beam_size=beam_size, alpha=0.7):
-        """
-        Beam search implemented correctly.
-        - e_output: encoder outputs (1, L_enc, d_model)
-        - e_mask: encoder mask (1, 1, L_enc)
-        - trg_sp: SentencePiece processor for decoding ids->text
-        - beam_size: beam width
-        - alpha: length normalization hyperparameter (common default ~0.7)
-        """
         self.model.eval()
-
-        # Each hypothesis: (tokens_list, cumulative_logprob, is_finished)
-        # Initialize with single hypothesis [SOS]
         hypotheses = [([sos_id], 0.0, False)]
 
         for t in range(seq_len):
@@ -349,24 +338,13 @@ class Manager:
             if all(h[2] for h in hypotheses):
                 break
 
-            # Build batch of decoder inputs: for every hypothesis that is not finished,
-            # we'll expand with top-k next token candidates. For finished hypos, keep them as-is.
-            # We will run decoder on the batch of candidate sequences to get log-probs.
             for h_idx, (tokens, logp, finished) in enumerate(hypotheses):
                 if finished:
                     # keep finished hypothesis as a candidate (carry over)
                     all_candidates.append((tokens, logp, True))
                 else:
-                    # We will expand this hypothesis; but first create its current input (padded)
-                    # We'll ask the model for top-k next tokens; to do that efficiently we will
-                    # create candidate inputs later.
-                    # For now just note we will expand this hypothesis.
-                    # We'll create the actual candidate inputs after we determine top-k per hypo.
                     pass
 
-            # To get top-k for each hypothesis we need model output at position t given its tokens.
-            # We'll create a batch of current hypotheses (one per non-finished hypo), run decoder,
-            # and extract log-probs at time step t, then pick top-k per hypothesis.
             alive_hypos = [(idx, h) for idx, h in enumerate(hypotheses) if not h[2]]
             if len(alive_hypos) == 0:
                 break
@@ -432,19 +410,10 @@ class Manager:
                     new_logp = curr_logp + top_vals[k_idx]  # cumulative log-prob
                     finished = token_id == eos_id
                     all_candidates.append((new_tokens, new_logp, finished))
-
-            # Also include previous finished hypotheses (they were added earlier)
-
-            # Now select top `beam_size` candidates among all_candidates by cumulative log-prob
-            # Note: do NOT normalize length here (we keep cumulative log-prob for beam propagation).
+                    
             all_candidates = sorted(all_candidates, key=lambda x: x[1], reverse=True)
             hypotheses = all_candidates[:beam_size]
 
-            # If number of hypotheses < beam_size (possible if many finished), pad by carrying best finished
-            # (not strictly necessary)
-
-        # After finishing (either reached seq_len or all finished), choose best hypothesis with length normalization
-        # Apply length normalization score = logp / (len(tokens) ** alpha)
         final_scores = []
         for tokens, logp, finished in hypotheses:
             length = len(tokens) - 1  # exclude SOS for length

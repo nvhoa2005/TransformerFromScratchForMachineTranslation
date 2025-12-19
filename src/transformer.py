@@ -18,15 +18,15 @@ class Transformer(nn.Module):
         self.softmax = nn.LogSoftmax(dim=-1)
 
     def forward(self, src_input, trg_input, e_mask=None, d_mask=None):
-        src_input = self.src_embedding(src_input) # (B, L) => (B, L, d_model)
-        trg_input = self.trg_embedding(trg_input) # (B, L) => (B, L, d_model)
-        src_input = self.positional_encoder(src_input) # (B, L, d_model) => (B, L, d_model)
-        trg_input = self.positional_encoder(trg_input) # (B, L, d_model) => (B, L, d_model)
+        src_input = self.src_embedding(src_input) 
+        trg_input = self.trg_embedding(trg_input) 
+        src_input = self.positional_encoder(src_input) 
+        trg_input = self.positional_encoder(trg_input) 
 
-        e_output = self.encoder(src_input, e_mask) # (B, L, d_model)
-        d_output = self.decoder(trg_input, e_output, e_mask, d_mask) # (B, L, d_model)
+        e_output = self.encoder(src_input, e_mask) 
+        d_output = self.decoder(trg_input, e_output, e_mask, d_mask) 
 
-        output = self.softmax(self.output_linear(d_output)) # (B, L, d_model) => # (B, L, trg_vocab_size)
+        output = self.softmax(self.output_linear(d_output)) 
 
         return output
 
