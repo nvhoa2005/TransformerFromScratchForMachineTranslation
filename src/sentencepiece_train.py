@@ -8,7 +8,10 @@ import sentencepiece as spm
 
 train_frac = 0.8
 
+# Huấn luyện mô hình SentencePiece
 def train_sp(is_src=True):
+    
+    # Template cấu hình CLI cho SentencePiece Trainer
     template = "--input={} \
                 --pad_id={} \
                 --bos_id={} \
@@ -26,6 +29,7 @@ def train_sp(is_src=True):
         this_input_file = f"{DATA_DIR}/{TRG_RAW_DATA_NAME}"
         this_model_prefix = f"{SP_DIR}/{trg_model_prefix}"
 
+    # Mapping các tham số cấu hình
     config = template.format(this_input_file,
                             pad_id,
                             sos_id,
@@ -42,9 +46,11 @@ def train_sp(is_src=True):
         os.mkdir(SP_DIR)
 
     print(spm)
+    # Gọi thư viện SentencePiece để training
     spm.SentencePieceTrainer.Train(config)
     
     
+# Chia tập dữ liệu thô thành train/validation và lưu vào thư mục tương ứng
 def split_data(raw_data_name, data_dir):
     with open(f"{DATA_DIR}/{raw_data_name}") as f:
         lines = f.readlines()    
@@ -69,8 +75,8 @@ def split_data(raw_data_name, data_dir):
 
 
 if __name__=='__main__':
-    train_sp(is_src=True)
-    train_sp(is_src=False)
-    split_data(SRC_RAW_DATA_NAME, SRC_DIR)
-    split_data(TRG_RAW_DATA_NAME, TRG_DIR)
+    train_sp(is_src=True)  # Huấn luyện mô hình SentencePiece cho nguồn
+    train_sp(is_src=False)  # Huấn luyện mô hình SentencePiece cho đích
+    split_data(SRC_RAW_DATA_NAME, SRC_DIR)  # Chia tập dữ liệu thô thành train/validation cho nguồn
+    split_data(TRG_RAW_DATA_NAME, TRG_DIR)  # Chia tập dữ liệu thô thành train/validation cho đích
     
