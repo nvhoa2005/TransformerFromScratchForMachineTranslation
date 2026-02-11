@@ -15,7 +15,7 @@ TEST_NAME = 'test.txt'
 
 # Các token đặc biệt
 pad_id = 0    # Đệm các câu ngắn cho bằng độ dài batch
-sos_id = 1    # Tín hiệu bắt đầu để Decoder sinh từ
+sos_id = 1    # Tín hiệu bắt đầu
 eos_id = 2    # Tín hiệu báo hiệu kết thúc câu
 unk_id = 3    # Từ không có trong từ điển
 
