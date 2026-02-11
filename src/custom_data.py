@@ -6,12 +6,14 @@ import torch
 import sentencepiece as spm
 import numpy as np
 
+# Load các mô hình SentencePiece pre-trained
 src_sp = spm.SentencePieceProcessor()
 trg_sp = spm.SentencePieceProcessor()
 src_sp.Load(f"{SP_DIR}/{src_model_prefix}.model")
 trg_sp.Load(f"{SP_DIR}/{trg_model_prefix}.model")
 
-
+# Tạo dataloader cho tập dữ liệu
+# Quy trình: Raw Text -> Tokenization -> Padding/Truncation -> Tensor Conversion -> DataLoader
 def get_data_loader(file_name):
     print(f"Getting source/target {file_name}...")
     with open(f"{DATA_DIR}/{SRC_DIR}/{file_name}", 'r') as f:
@@ -20,15 +22,18 @@ def get_data_loader(file_name):
     with open(f"{DATA_DIR}/{TRG_DIR}/{file_name}", 'r') as f:
         trg_text_list = f.readlines()
 
+    # Xử lý nguồn
     print("Tokenizing & Padding src data...")
     src_list = process_src(src_text_list) 
     print(f"The shape of src data: {np.shape(src_list)}")
 
+    # Xử lý đích
     print("Tokenizing & Padding trg data...")
     input_trg_list, output_trg_list = process_trg(trg_text_list) 
     print(f"The shape of input trg data: {np.shape(input_trg_list)}")
     print(f"The shape of output trg data: {np.shape(output_trg_list)}")
 
+    # Tạo DataLoader
     dataset = CustomDataset(src_list, input_trg_list, output_trg_list)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
@@ -37,10 +42,12 @@ def get_data_loader(file_name):
 
 def pad_or_truncate(tokenized_text):
     if len(tokenized_text) < seq_len:
+        # Padding
         left = seq_len - len(tokenized_text)
         padding = [pad_id] * left
         tokenized_text += padding
     else:
+        # Truncation
         tokenized_text = tokenized_text[:seq_len]
 
     return tokenized_text
@@ -50,6 +57,7 @@ def process_src(text_list):
     tokenized_list = []
     for text in tqdm(text_list):
         tokenized = src_sp.EncodeAsIds(text.strip())
+        # Thêm eos token vào cuối câu
         tokenized_list.append(pad_or_truncate(tokenized + [eos_id]))
 
     return tokenized_list
@@ -59,6 +67,7 @@ def process_trg(text_list):
     output_tokenized_list = []
     for text in tqdm(text_list):
         tokenized = trg_sp.EncodeAsIds(text.strip())
+        # Thêm sos token vào đầu câu và eos token vào cuối câu khi decode
         trg_input = [sos_id] + tokenized
         trg_output = tokenized + [eos_id]
         input_tokenized_list.append(pad_or_truncate(trg_input))
@@ -70,6 +79,7 @@ def process_trg(text_list):
 class CustomDataset(Dataset):
     def __init__(self, src_list, input_trg_list, output_trg_list):
         super().__init__()
+        # Chuyển đổi list sang LongTensor để tương thích với nn.Embedding
         self.src_data = torch.LongTensor(src_list)
         self.input_trg_data = torch.LongTensor(input_trg_list)
         self.output_trg_data = torch.LongTensor(output_trg_list)
@@ -77,7 +87,10 @@ class CustomDataset(Dataset):
         assert np.shape(src_list) == np.shape(input_trg_list), "The shape of src_list and input_trg_list are different."
         assert np.shape(input_trg_list) == np.shape(output_trg_list), "The shape of input_trg_list and output_trg_list are different."
 
+    # Tạo mask cho encoder và decoder
     def make_mask(self):
+        # e_mask: che đi các vị trí padding trong encoder input
+        # d_mask: che đi các vị trí padding trong decoder input và các vị trí tương lai
         e_mask = (self.src_data != pad_id).unsqueeze(1) 
         d_mask = (self.input_trg_data != pad_id).unsqueeze(1) 
 
