@@ -9,6 +9,8 @@ class EncoderLayer(nn.Module):
     def __init__(self):
         super().__init__()
         self.layer_norm_1 = LayerNormalization()
+        
+        # Chọn loại attention theo tham số cấu hình
         if attention_type == 'bahdanau':
             self.multihead_attention = BahdanauMultiheadAttention()
         elif attention_type == 'scaled_dot_product':
@@ -22,10 +24,13 @@ class EncoderLayer(nn.Module):
         self.drop_out_2 = nn.Dropout(drop_out_rate)
 
     def forward(self, x, e_mask):
-        x_1 = self.layer_norm_1(x)
+        # 1. Pre-Norm Self-Attention Sublayer
+        x_1 = self.layer_norm_1(x)  # Normalize TRƯỚC khi vào Attention
         x = x + self.drop_out_1(
             self.multihead_attention(x_1, x_1, x_1, mask=e_mask)
-        )
+        )  # Residual Connection
+        
+        # 2. Pre-Norm Feed-Forward Sublayer
         x_2 = self.layer_norm_2(x)
         x = x + self.drop_out_2(self.feed_forward(x_2))
 
@@ -36,6 +41,8 @@ class DecoderLayer(nn.Module):
     def __init__(self):
         super().__init__()
         self.layer_norm_1 = LayerNormalization()
+        
+        # Masked Attention
         self.masked_multihead_attention = None
         if attention_type == 'bahdanau':
             self.masked_multihead_attention = BahdanauMultiheadAttention()
@@ -46,6 +53,7 @@ class DecoderLayer(nn.Module):
         self.drop_out_1 = nn.Dropout(drop_out_rate)
 
         self.layer_norm_2 = LayerNormalization()
+        # Cross Attention: Decoder query lấy thông tin từ Encoder Key/Value
         self.multihead_attention = None
         if attention_type == 'bahdanau':
             self.multihead_attention = BahdanauMultiheadAttention()
@@ -60,14 +68,20 @@ class DecoderLayer(nn.Module):
         self.drop_out_3 = nn.Dropout(drop_out_rate)
 
     def forward(self, x, e_output, e_mask,  d_mask):
+        # 1. Masked Self-Attention
         x_1 = self.layer_norm_1(x)
         x = x + self.drop_out_1(
             self.masked_multihead_attention(x_1, x_1, x_1, mask=d_mask)
         )
+        
+        # 2. Cross-Attention
+        # Query (x_2) đến từ Decoder, Key/Value (e_output) đến từ Encoder
         x_2 = self.layer_norm_2(x)
         x = x + self.drop_out_2(
             self.multihead_attention(x_2, e_output, e_output, mask=e_mask)
         )
+        
+        # 3. Feed Forward
         x_3 = self.layer_norm_3(x)
         x = x + self.drop_out_3(self.feed_forward(x_3))
 
@@ -79,7 +93,7 @@ class MultiheadAttention(nn.Module):
         super().__init__()
         self.inf = 1e9
 
-        # W^Q, W^K, W^V in the paper
+        # Chiếu Q, K, V vào không gian ngữ nghĩa
         self.w_q = nn.Linear(d_model, d_model)
         self.w_k = nn.Linear(d_model, d_model)
         self.w_v = nn.Linear(d_model, d_model)
@@ -87,42 +101,47 @@ class MultiheadAttention(nn.Module):
         self.dropout = nn.Dropout(drop_out_rate)
         self.attn_softmax = nn.Softmax(dim=-1)
 
-        # Final output linear transformation
+        # Output linear
         self.w_0 = nn.Linear(d_model, d_model)
 
     def forward(self, q, k, v, mask=None):
         input_shape = q.shape
 
-        # Linear calculation +  split into num_heads
+        # Linear projection & Split heads
+        # Reshape từ (B, L, d_model) -> (B, L, num_heads, d_k)
         q = self.w_q(q).view(input_shape[0], -1, num_heads, d_k) # (B, L, num_heads, d_k)
         k = self.w_k(k).view(input_shape[0], -1, num_heads, d_k) # (B, L, num_heads, d_k)
         v = self.w_v(v).view(input_shape[0], -1, num_heads, d_k) # (B, L, num_heads, d_k)
 
-        # For convenience, convert all tensors in size (B, num_heads, L, d_k)
+        # Transpose để đưa num_heads ra ngoài phục vụ tính toán song song
+        # Shape mới: (B, num_heads, L, d_k)
         q = q.transpose(1, 2)
         k = k.transpose(1, 2)
         v = v.transpose(1, 2)
 
-        # Conduct self-attention
+        # 2. Calculate Attention Score
         attn_values = self.self_attention(q, k, v, mask=mask) # (B, num_heads, L, d_k)
+        
+        # 3. Concatenate heads & Final Linear
         concat_output = attn_values.transpose(1, 2)\
             .contiguous().view(input_shape[0], -1, d_model) # (B, L, d_model)
 
         return self.w_0(concat_output)
 
     def self_attention(self, q, k, v, mask=None):
-        # Calculate attention scores with scaled dot-product attention
+        # Matmul Q và K^T: (B, H, L, d_k) @ (B, H, d_k, L) -> (B, H, L, L)
         attn_scores = torch.matmul(q, k.transpose(-2, -1)) # (B, num_heads, L, L)
+        
+        # Scaling: Chia cho sqrt(d_k) để tránh dot-product quá lớn.
         attn_scores = attn_scores / math.sqrt(d_k)
 
-        # If there is a mask, make masked spots -INF
+        # Masking: Gán giá trị -inf cho các vị trí bị che
         if mask is not None:
             mask = mask.unsqueeze(1) # (B, 1, L) => (B, 1, 1, L) or (B, L, L) => (B, 1, L, L)
             attn_scores = attn_scores.masked_fill_(mask == 0, -1 * self.inf)
 
-        # Softmax and multiplying K to calculate attention value
+        # Softmax & Weighted Sum
         attn_distribs = self.attn_softmax(attn_scores)
-
         attn_distribs = self.dropout(attn_distribs)
         attn_values = torch.matmul(attn_distribs, v) # (B, num_heads, L, d_k)
 
@@ -149,6 +168,7 @@ class LayerNormalization(nn.Module):
     def __init__(self, eps=1e-6):
         super().__init__()
         self.eps = eps
+        # LayerNorm để chuẩn hóa theo chiều d_model
         self.layer = nn.LayerNorm([d_model], elementwise_affine=True, eps=self.eps)
 
     def forward(self, x):
@@ -160,10 +180,10 @@ class LayerNormalization(nn.Module):
 class PositionalEncoder(nn.Module):
     def __init__(self):
         super().__init__()
-        # Make initial positional encoding matrix with 0
+        # Tạo ma trận PE một lần duy nhất
         pe_matrix= torch.zeros(seq_len, d_model) # (L, d_model)
 
-        # Calculating position encoding values
+        # Tính position encoding values
         for pos in range(seq_len):
             for i in range(d_model):
                 if i % 2 == 0:
@@ -191,8 +211,7 @@ class BahdanauMultiheadAttention(nn.Module):
         self.w_k = nn.Linear(d_model, d_model)
         self.w_v = nn.Linear(d_model, d_model)
 
-        # Bahdanau specific: Vector v (learned parameter)
-        # Shape (1, num_heads, 1, 1, d_k) for broadcasting
+        # Bahdanau specific: Vector v là tham số học được
         self.v = nn.Parameter(torch.rand(1, num_heads, 1, 1, d_k))
         nn.init.xavier_uniform_(self.v)
 
