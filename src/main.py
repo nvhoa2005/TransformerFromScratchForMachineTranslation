@@ -30,12 +30,20 @@ import sentencepiece as spm
 
 
 class Manager:
+    """
+    Class này chịu trách nhiệm quản lý toàn bộ vòng đời của mô hình:
+    1. Khởi tạo: Load vocab, model, optimizer.
+    2. Training Loop: Forward pass, Loss calculation, Backpropagation.
+    3. Validation: Theo dõi metric.
+    4. Inference: Triển khai thuật toán Greedy và Beam Search.
+    """
     def __init__(self, is_train=True, ckpt_name=None):
         # Load vocabs
         print("Loading vocabs...")
         self.src_i2w = {}
         self.trg_i2w = {}
 
+        # Đọc vocabulary từ SentencePiece để mapping ID <-> Word
         with open(f"{SP_DIR}/{src_model_prefix}.vocab") as f:
             lines = f.readlines()
         for i, line in enumerate(lines):
@@ -57,6 +65,9 @@ class Manager:
         self.model = Transformer(
             src_vocab_size=len(self.src_i2w), trg_vocab_size=len(self.trg_i2w)
         )
+        
+        # Multi-GPU Support (Data Parallelism)
+        # Tự động phân phối batch lên nhiều GPU nếu có, giúp tăng tốc training.
         if torch.cuda.device_count() > 1:
             print(f"Detecting {torch.cuda.device_count()} GPUs. Using DataParallel!")
             self.model = nn.DataParallel(self.model)
@@ -69,6 +80,8 @@ class Manager:
         self.start_epoch = start_epoch
         print(f"Starting from epoch {self.start_epoch}")
 
+        # Checkpoint Management (Resume Training)
+        # Cho phép tải lại trạng thái model và optimizer để tiếp tục train.
         if ckpt_name is not None:
             assert os.path.exists(f"{ckpt_dir}/{ckpt_name}"), (
                 f"There is no checkpoint named {ckpt_name}."
@@ -92,6 +105,8 @@ class Manager:
 
         else:
             print("Initializing the model...")
+            # Weight Initialization: Xavier Uniform
+            # Giúp gradient lan truyền tốt hơn trong giai đoạn đầu training (tránh exploding/vanishing gradients).
             for p in self.model.parameters():
                 if p.dim() > 1:
                     nn.init.xavier_uniform_(p)
@@ -99,6 +114,7 @@ class Manager:
         if is_train:
             # Load loss function
             print("Loading loss function...")
+            # ignore_index=pad_id: Không tính loss cho các token đệm (padding).
             self.criterion = nn.NLLLoss(ignore_index=pad_id)
 
             # Load dataloaders
@@ -115,7 +131,7 @@ class Manager:
         end_range = self.start_epoch + num_epochs
 
         for epoch in range(start_range, end_range):
-            self.model.train()
+            self.model.train()  # Bật chế độ train
 
             train_losses = []
             start_time = datetime.datetime.now()
@@ -128,24 +144,29 @@ class Manager:
                     trg_output.to(device),
                 )
 
+                # Tạo masks cho Attention
                 e_mask, d_mask = self.make_mask(src_input, trg_input)
 
+                # Forward Pass
                 output = self.model(
                     src_input, trg_input, e_mask, d_mask
                 )  # (B, L, vocab_size)
 
+                # Flatten output và target để tính Loss
                 trg_output_shape = trg_output.shape
-                self.optim.zero_grad()
+                self.optim.zero_grad()  # Xóa gradient cũ
                 loss = self.criterion(
                     output.view(-1, self.model_core.trg_vocab_size),
                     trg_output.view(trg_output_shape[0] * trg_output_shape[1]),
                 )
 
+                # Backward Pass & Optimization
                 loss.backward()
                 self.optim.step()
 
                 train_losses.append(loss.item())
 
+                # Giải phóng memory GPU
                 del src_input, trg_input, trg_output, e_mask, d_mask, output
 
             end_time = datetime.datetime.now()
@@ -161,11 +182,15 @@ class Manager:
                 f"Train loss: {mean_train_loss} || One epoch training time: {hours}hrs {minutes}mins {seconds}secs"
             )
 
+            # Validation step
             valid_loss, valid_time = self.validation()
 
             if not os.path.exists(ckpt_dir):
                 os.mkdir(ckpt_dir)
 
+            # Model Checkpointing Strategy
+            # 1. Lưu checkpoint tốt nhất (Best Loss) để sử dụng sau này.
+            # 2. Lưu checkpoint định kỳ mỗi epoch để resume nếu cần.
             is_best = False
             if valid_loss < self.best_loss:
                 self.best_loss = valid_loss
@@ -194,11 +219,12 @@ class Manager:
 
     def validation(self):
         print("Validation processing...")
-        self.model.eval()
+        self.model.eval()  # Bật chế độ eval
 
         valid_losses = []
         start_time = datetime.datetime.now()
 
+        # Tắt Gradient Computation để tiết kiệm bộ nhớ và tăng tốc độ
         with torch.no_grad():
             for i, batch in tqdm(enumerate(self.valid_loader)):
                 src_input, trg_input, trg_output = batch
@@ -236,6 +262,10 @@ class Manager:
         return mean_valid_loss, f"{hours}hrs {minutes}mins {seconds}secs"
 
     def inference(self, input_sentence, method, beam_k=None):
+        """
+        Inference Pipeline:
+        Raw Text -> Tokenizer -> Embedding -> Encoder -> Decoder Search (Greedy/Beam) -> Detokenizer
+        """
         print("Inference starts.")
         self.model.eval()
 
@@ -285,6 +315,12 @@ class Manager:
         return result
 
     def greedy_search(self, e_output, e_mask, trg_sp):
+        """
+        Greedy Decoding:
+        Tại mỗi bước thời gian t, chọn từ có xác suất cao nhất.
+        Nhanh nhưng thường không tối ưu về chất lượng dịch vì không xét đến các khả năng khác.
+        """
+        
         last_words = torch.LongTensor([pad_id] * seq_len).to(device)  # (L)
         last_words[0] = sos_id  # (L)
         cur_len = 1
@@ -328,6 +364,11 @@ class Manager:
         return decoded_output
 
     def beam_search(self, e_output, e_mask, trg_sp, beam_size=beam_size, alpha=0.7):
+        """
+        Beam Search Decoding:
+        Duy trì k (beam_size) giả thuyết tốt nhất tại mỗi bước.
+        Giúp tìm ra câu dịch có xác suất tổng thể cao hơn so với Greedy.
+        """
         self.model.eval()
         hypotheses = [([sos_id], 0.0, False)]
 
