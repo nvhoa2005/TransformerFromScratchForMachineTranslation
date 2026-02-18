@@ -145,3 +145,6 @@ nohup.out
 
 # jupyter notebook file
 run.ipynb
+
+script.docx
+*.mp4
